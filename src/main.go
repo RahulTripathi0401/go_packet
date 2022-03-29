@@ -28,9 +28,12 @@ func main() {
 		panic(err)
 	} else {
 		packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
-		for _ = range packetSource.Packets() {
-			// fmt.Print(packet)
+		for packet := range packetSource.Packets() {
+			application_layer := packet.ApplicationLayer()
+			if application_layer != nil {
+				fmt.Println(string(application_layer.Payload()[:]))
+			}
 		}
 	}
-	fmt.Print(network_map)
+	fmt.Println(network_map)
 }
