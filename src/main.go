@@ -7,85 +7,107 @@ package main
 // Importing packages
 import (
 	"fmt"
-	"strings"
-	"time"
+	// "strings"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
-	"github.com/google/gopacket/tcpassembly"
-	"github.com/google/gopacket/tcpassembly/tcpreader"
 )
 
 /**
-
-	Data Structure
-
-	{"apple.com" => {"address one" : 200, "address two" : 250 }}
-
+	1. Process tls for anything that contains apple
+	2. Add the ip to map
+	3. In another loop filter for TCP packets mapped to ip, source port
+	4. Figure out RTT of handshake
 **/
 
-type httpStreamFactory struct{}
-
-type httpStream struct {
-	net, transport gopacket.Flow
-	r              tcpreader.ReaderStream
+type transport_tuple struct {
+	srcIP, dstIP string
+	srcPort, dstPort uint16
+	transport uint8
 }
 
-func (h *httpStreamFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
-	hstream := &httpStream{
-		net:       net,
-		transport: transport,
-		r:         tcpreader.NewReaderStream(),
-	}
-	return &hstream.r
+
+func (t transport_tuple) toString() string {
+	return string(t.dstIP) + string(t.srcIP) + fmt.Sprint(t.dstPort) + fmt.Sprint(t.srcPort) + string(t.transport)
 }
+
+type Protocols int
+
+const (
+    TCP int = 0
+    UDP int = 1
+    IPV6 int = 2
+    IPv4 int = 3
+	DNS int = 4
+	TLS int = 5
+)
 
 func main() {
 
-	network_map := make(map[string]map[string]time.Duration)
-	network_map["apple.com"] = make(map[string]time.Duration)
-	RTT_map := make(map[string]time.Time)
-	// streamFactory := &httpStreamFactory{}
-	// streamPool := tcpassembly.NewStreamPool(streamFactory)
-	// assembler := tcpassembly.NewAssembler(streamPool)
-
-	if handle, err := pcap.OpenOffline("apple.pcap"); err != nil {
+	// network_map := make(map[string]uint32)
+	var eth layers.Ethernet
+	var ip4 layers.IPv4
+	var ip6 layers.IPv6
+	var tcp layers.TCP
+	var udp layers.UDP
+	var tls layers.TLS
+	var dns layers.DNS
+	decoded := []gopacket.LayerType{}
+	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet, &eth, &ip4, &ip6, &tcp, &udp, &tls, &dns)
+	if handle, err := pcap.OpenOffline("apple1.pcapng"); err != nil {
 		panic(err)
 	} else {
-		packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+		packetSource := gopacket.NewPacketSource(handle, handle.LinkType())	
 		for packet := range packetSource.Packets() {
-			ipLayer := packet.Layer(layers.LayerTypeIPv4)
-			transport_layer := packet.TransportLayer()
-			if ipLayer == nil {
+			if err := parser.DecodeLayers(packet.Data(), &decoded); err != nil {
+				// fmt.Fprintf(os.Stderr, "Could not decode layers: %v\n", err)
 				continue
 			}
-			ip, _ := ipLayer.(*layers.IPv4)
-			if ip == nil {
-				continue
-			}
-			source_ip := ip.SrcIP.String()
-			destination_ip := ip.DstIP.String()
-
-			// Get the RTT
-			println(transport_layer.TransportFlow().String())
-			println(source_ip, destination_ip)
-
-			packet_time := packet.Metadata().Timestamp
-			if val, ok := RTT_map[destination_ip]; ok {
-				elapsed_time := packet_time.Sub(val)
-				if strings.Contains(source_ip, "172") {
-					network_map["apple.com"][destination_ip] = elapsed_time
-				} else {
-					network_map["apple.com"][source_ip] = elapsed_time
+			var data transport_tuple
+			for _, layerType := range decoded {
+				switch layerType {
+					case layers.LayerTypeIPv6:
+						data.srcIP = ip6.SrcIP.String()
+						data.dstIP =  ip6.DstIP.String()
+						data.transport = uint8(IPV6)
+					case layers.LayerTypeIPv4:
+						data.srcIP = ip4.SrcIP.String()
+						data.dstIP =  ip4.DstIP.String()
+						data.transport = uint8(IPv4)
+					case layers.LayerTypeTCP:
+						data.srcPort = uint16(tcp.SrcPort)
+						data.dstPort = uint16(tcp.DstPort)
+						data.transport = uint8(TCP)
+					case layers.LayerTypeUDP:
+						data.srcPort = uint16(udp.SrcPort)
+						data.dstPort = uint16(udp.DstPort)
+						data.transport = uint8(UDP)
+					case layers.LayerTypeTLS:
+						// 
+						// test := string(tls.Contents)
+						// if strings.Contains(test, "apple") {
+						// 	fmt.Println(test)
+						// }
+					case layers.LayerTypeDNS:
+						test := dns.Answers
+						for x := range test {
+							d := test[x]
+							name := string(d.Name[:])
+							switch d.Type {
+							case layers.DNSTypeCNAME:
+								
+							}
+							fmt.Println(d.IP, name, d.Type)
+						}
 				}
 
-			} else {
-				RTT_map[source_ip] = packet_time
-			}
-			// tcp := packet.TransportLayer().(*layers.TCP)
-			// assembler.AssembleWithTimestamp(packet.NetworkLayer().NetworkFlow(), tcp, packet.Metadata().Timestamp)
+				// fmt.Printf("src IP: %s dst IP: %s src port %d dst port %d transport %d \n", data.srcIP, data.dstIP, data.srcPort, data.dstPort, data.transport)
+			}	
 		}
+
 	}
-	fmt.Println(network_map)
+	// fmt.Println(network_map)
 }
+
+
