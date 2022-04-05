@@ -103,12 +103,12 @@ func main() {
 		}
 
 	}
-	format_output(flow_map)
+	format_output(dns_records, flow_map)
 }
 
-func format_output(flow_map map[string]transport_flow) {
+func format_output(dns_records map[string]dns_record, flow_map map[string]transport_flow) {
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"IP", "DNS", "Src Port", "Dst Port",
+	table.SetHeader([]string{"Query", "IP", "DNS", "Src Port", "Dst Port",
 		"Start Time", "Last Packet Time", "RTT", "Up Bytes",
 		"Up packets", "Down Bytes", "Down Packets"})
 	var data [][]string
@@ -120,16 +120,32 @@ func format_output(flow_map map[string]transport_flow) {
 		upPackets := strconv.Itoa(flow.up_packets)
 		downBytes := strconv.Itoa(flow.down_bytes)
 		downPackets := strconv.Itoa(flow.down_packets)
-		row := []string{flow.dstIP, flow.dns_name, srcPort, dstPort,
-			flow.start_time.String(), flow.last_packet_time.String(),
+		row := []string{flow.dns_name, flow.dstIP, flow.dns_name, srcPort,
+			dstPort, flow.start_time.String(), flow.last_packet_time.String(),
 			flow.rtt.String(), upBytes, upPackets, downBytes, downPackets,
 		}
 		data = append(data, row)
 	}
-
-	// table.SetAutoMergeCells(true)
 	table.AppendBulk(data)
 	table.Render()
+	table = tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Query", "A Type", "IP", "CNAME"})
+	var dns [][]string
+	for query, record := range dns_records {
+		for key, val := range record.a_record {
+			for i := range val {
+				row := []string{query, key, val[i], ""}
+				dns = append(dns, row)
+			}
+		}
+		for i := range record.cname {
+			row := []string{query, "", "", record.cname[i]}
+			dns = append(dns, row)
+		}
+	}
+	table.AppendBulk(dns)
+	table.Render()
+
 }
 
 func calculate_rtt(data *transport_flow, time time.Time, tcp *layers.TCP, flow_map map[string]transport_flow, length int) {
